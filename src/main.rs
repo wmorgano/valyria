@@ -74,7 +74,6 @@ fn main() {
 }
 
 #[cfg(test)]
-
 mod tests {
     use super::*;
 
@@ -128,5 +127,5 @@ mod tests {
     fn test_evaluate() {
         let input_expressions = vec![String::from("123"), String::from("456")];
         assert_eq!(evaluate(&input_expressions), Ok(String::from("123")));
-   } 
+    }
 }
