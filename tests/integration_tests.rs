@@ -8,7 +8,7 @@ fn make_repl_input(repl_cmds: &[&str]) -> String {
     repl_cmds.join("\n") + "\nquit"
 }
 
-fn make_repl_outputs(repl_cmds: &[&str]) -> String {
+fn make_repl_output(repl_cmds: &[&str]) -> String {
     let mut outputs = String::from(">> ");
     outputs.push_str(&repl_cmds.join("\n>> "));
     outputs.push_str("\n>> ");
@@ -17,7 +17,7 @@ fn make_repl_outputs(repl_cmds: &[&str]) -> String {
 
 fn make_repl_test_io(repl_cmds: &[(&str, &str)]) -> (String, String) {
     let (inputs, outputs): (Vec<&str>, Vec<&str>) = repl_cmds.iter().copied().unzip();
-    (make_repl_input(&inputs), make_repl_outputs(&outputs))
+    (make_repl_input(&inputs), make_repl_output(&outputs))
 }
 
 #[test]
