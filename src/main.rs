@@ -33,7 +33,7 @@ struct Token {
 }
 
 impl Token {
-    fn new(literal: String) -> Token {
+    fn new(literal: String) -> Self {
         Token { literal }
     }
 }
