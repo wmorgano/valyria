@@ -1,15 +1,15 @@
 use std::io::{self, Write};
 
-fn display_prompt(prompt: String, writer: &mut impl io::Write) {
+fn display_prompt(prompt: String, writer: &mut impl Write) {
     write!(writer, "{}", prompt).expect("Failed to write prompt.");
 }
 
-fn read_expression(writer: &mut impl io::Write, reader: &mut impl io::BufRead) -> Vec<String> {
+fn read_expression(writer: &mut impl Write, reader: &mut impl io::BufRead) -> Vec<String> {
     let prompt = String::from(">> ");
     display_prompt(prompt, writer);
-    io::stdout()
+    writer
         .flush()
-        .expect("Failed to flush stdout stream.");
+        .expect("Failed to flush output stream.");
 
     let mut input = String::new();
 
@@ -55,7 +55,7 @@ fn evaluate(expression: &Vec<String>) -> Result<String, &'static str> {
     }
 }
 
-fn repl(mut writer: impl io::Write, mut reader: impl io::BufRead) {
+fn repl(mut writer: impl Write, mut reader: impl io::BufRead) {
     loop {
         let expression = read_expression(&mut writer, &mut reader);
         if is_terminator(&expression) {
