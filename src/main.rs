@@ -20,7 +20,7 @@ fn read_expression(writer: &mut impl io::Write, reader: &mut impl io::BufRead) -
     input.split_whitespace().map(String::from).collect()
 }
 
-fn is_terminator(expression: &Vec<String>) -> bool {
+fn is_terminator(expression: &[String]) -> bool {
     match expression.first() {
         None => false,
         Some(command) => command == "quit",
@@ -38,7 +38,7 @@ impl Token {
     }
 }
 
-fn tokenize(expression: &Vec<String>) -> Vec<Token> {
+fn tokenize(expression: &[String]) -> Vec<Token> {
     expression
         .iter()
         .map(|token| Token::new(token.clone()))
