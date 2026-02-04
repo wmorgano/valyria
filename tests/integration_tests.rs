@@ -34,3 +34,11 @@ fn run_repl_with_integer_input() {
     let assert = cmd.write_stdin(repl_input).assert();
     assert.stdout(repl_output).success();
 }
+
+#[test]
+fn run_repl_with_addition_input() {
+    let mut cmd = get_repl_test_command();
+    let (repl_input, repl_output) = make_repl_test_io(&[("1 + 2", "3")]);
+    let assert = cmd.write_stdin(repl_input).assert();
+    assert.stdout(repl_output).success();
+}

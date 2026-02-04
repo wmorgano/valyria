@@ -25,14 +25,27 @@ fn is_terminator(expression: &str) -> bool {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+enum TokenType {
+    Operator,
+    Operand
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 struct Token {
     literal: String,
+    token_type: TokenType
 }
 
 impl Token {
     fn new(literal: &str) -> Token {
+        let mut token_type = TokenType::Operand;
+        if matches!(literal, "+") {
+            token_type = TokenType::Operator;
+        }
+
         Token {
             literal: String::from(literal),
+            token_type
         }
     }
 }
@@ -43,6 +56,19 @@ fn parse(expression: &str) -> Vec<Token> {
 
 fn evaluate(expression: &str) -> Option<String> {
     let tokens = parse(expression);
+
+    if let Some(operator) = tokens.iter().find(|token| token.token_type == TokenType::Operator) {
+        return match operator.literal.as_str() {
+            "+" => {
+                let sum: i64 = tokens.iter()
+                    .filter(|token| token.token_type == TokenType::Operand)
+                    .filter_map(|token| token.literal.parse::<i64>().ok())
+                    .sum();
+                Some(sum.to_string())
+            }
+            _ => None,
+        }
+    }
 
     // For now, 'evaluation' will consist of just returning the first token.
     tokens.first().map(|result| result.literal.clone())
@@ -116,5 +142,10 @@ mod tests {
     fn test_evaluate() {
         let input_expressions = "123 456";
         assert_eq!(evaluate(&input_expressions), Some(String::from("123")));
+    }
+
+    #[test]
+    fn test_add_integers() {
+        assert_eq!(evaluate("1 + 2"), Some(String::from("3")));
     }
 }
