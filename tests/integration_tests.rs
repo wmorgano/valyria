@@ -50,3 +50,11 @@ fn run_repl_with_string_concat() {
     let assert = cmd.write_stdin(repl_input).assert();
     assert.stdout(repl_output).success();
 }
+
+#[test]
+fn run_repl_with_assignment() {
+    let mut cmd = get_repl_test_command();
+    let (repl_input, repl_output) = make_repl_test_io(&[("a = 123", "a == 123")]);
+    let assert = cmd.write_stdin(repl_input).assert();
+    assert.stdout(repl_output).success();
+}

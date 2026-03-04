@@ -1,5 +1,7 @@
 use std::env;
+use std::fmt::Display;
 use std::io::{self, Write};
+use std::ops::Add;
 
 fn display_prompt(prompt: &str, writer: &mut impl Write) {
     write!(writer, "{prompt}").expect("Failed to write prompt.");
@@ -29,52 +31,240 @@ enum TokenType {
     Operand,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-enum ObjectType {
-    Int,
-    Float,
-    String,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 struct Token {
     literal: String,
     token_type: TokenType,
-    object_type: Option<ObjectType>,
+    object: Option<Object>,
 }
 
 impl Token {
     fn new(literal: &str) -> Token {
         let mut token_type = TokenType::Operand;
-        let mut object_type = None;
-        if matches!(literal, "+") {
+        let mut object = None;
+        if matches!(literal, "+") || matches!(literal, "=") {
             token_type = TokenType::Operator;
         } else {
-            if literal.parse::<i64>().is_ok() {
-                object_type = Some(ObjectType::Int);
-            } else if literal.parse::<f64>().is_ok() {
-                object_type = Some(ObjectType::Float);
+            if let Ok(val) = literal.parse::<i64>() {
+                object = Some(Object::new(Box::new(IntObject::new(val))));
+            } else if let Ok(val) = literal.parse::<f64>() {
+                object = Some(Object::new(Box::new(FloatObject::new(val))));
             } else if literal.starts_with('"') && literal.ends_with('"') {
-                object_type = Some(ObjectType::String);
+                object = Some(Object::new(Box::new(StringObject::new(literal[1..literal.len() - 1]
+                    .to_string()))));
             }
         }
 
         Token {
             literal: String::from(literal),
             token_type,
-            object_type,
+            object,
+        }
+    }
+}
+
+trait ObjectTrait: std::fmt::Debug {
+    fn to_string(&self) -> String;
+    fn add(&self, other: &dyn ObjectTrait) -> Box<dyn ObjectTrait>;
+    fn as_any(&self) -> &dyn std::any::Any;
+    fn clone_obj(&self) -> Box<dyn ObjectTrait>;
+    fn equals(&self, other: &dyn ObjectTrait) -> bool;
+}
+
+// Generic Object Structure
+
+struct Object {
+    obj: Box<dyn ObjectTrait>,
+}
+
+impl Object {
+    fn new(obj: Box<dyn ObjectTrait>) -> Self {
+        Object { obj }
+    }
+}
+
+impl Clone for Object {
+    fn clone(&self) -> Self {
+        Object {
+            obj: self.obj.clone_obj(),
+        }
+    }
+}
+
+impl std::fmt::Debug for Object {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.obj.fmt(f)
+    }
+}
+
+impl PartialEq for Object {
+    fn eq(&self, other: &Self) -> bool {
+        self.obj.equals(other.obj.as_ref())
+    }
+}
+
+impl Display for Object {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.obj.to_string())
+    }
+}
+
+impl Add for Object {
+    type Output = Object;
+
+    fn add(self, rhs: Object) -> Object {
+        Object::new(self.obj.add(rhs.obj.as_ref()))
+    }
+}
+
+// Int Object
+
+#[derive(Debug, Clone, PartialEq)]
+struct IntObject {
+    value: i64,
+}
+
+impl IntObject {
+    fn new(value: i64) -> IntObject {
+        IntObject { value }
+    }
+}
+
+
+impl ObjectTrait for IntObject {
+    fn to_string(&self) -> String {
+        self.value.to_string()
+    }
+
+    fn add(&self, other: &dyn ObjectTrait) -> Box<dyn ObjectTrait> {
+        if let Some(other_int) = other.as_any().downcast_ref::<IntObject>() {
+            Box::new(IntObject::new(self.value + other_int.value))
+        } else if let Some(other_float) = other.as_any().downcast_ref::<FloatObject>() {
+            Box::new(FloatObject::new(self.value as f64 + other_float.value))
+        } else {
+            panic!("Cannot add {:?} to Int", other)
         }
     }
 
-    fn unwrap_string(&self) -> Option<String> {
-        if self.token_type == TokenType::Operand
-            && self.literal.starts_with('"')
-            && self.literal.ends_with('"')
-        {
-            Some(self.literal[1..self.literal.len() - 1].to_string())
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+
+    fn clone_obj(&self) -> Box<dyn ObjectTrait> {
+        Box::new(self.clone())
+    }
+
+    fn equals(&self, other: &dyn ObjectTrait) -> bool {
+        if let Some(other_int) = other.as_any().downcast_ref::<IntObject>() {
+            self.value == other_int.value
         } else {
-            None
+            false
         }
+    }
+}
+
+// Float Object
+
+#[derive(Debug, Clone, PartialEq)]
+struct FloatObject {
+    value: f64,
+}
+
+impl FloatObject {
+    fn new(value: f64) -> FloatObject {
+        FloatObject { value }
+    }
+}
+
+impl ObjectTrait for FloatObject {
+    fn to_string(&self) -> String {
+        self.value.to_string()
+    }
+
+    fn add(&self, other: &dyn ObjectTrait) -> Box<dyn ObjectTrait> {
+        if let Some(other_float) = other.as_any().downcast_ref::<FloatObject>() {
+            Box::new(FloatObject::new(self.value + other_float.value))
+        } else if let Some(other_int) = other.as_any().downcast_ref::<IntObject>() {
+            Box::new(FloatObject::new(self.value + other_int.value as f64))
+        } else {
+            panic!("Cannot add {:?} to Float", other)
+        }
+    }
+
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+
+    fn clone_obj(&self) -> Box<dyn ObjectTrait> {
+        Box::new(self.clone())
+    }
+
+    fn equals(&self, other: &dyn ObjectTrait) -> bool {
+        if let Some(other_float) = other.as_any().downcast_ref::<FloatObject>() {
+            self.value == other_float.value
+        } else {
+            false
+        }
+    }
+}
+
+// String Object
+
+#[derive(Debug, Clone, PartialEq)]
+struct StringObject {
+    value: String,
+}
+
+impl StringObject {
+    fn new(value: String) -> StringObject {
+        StringObject { value }
+    }
+}
+
+impl ObjectTrait for StringObject {
+    fn to_string(&self) -> String {
+        self.value.clone()
+    }
+
+    fn add(&self, other: &dyn ObjectTrait) -> Box<dyn ObjectTrait> {
+        if let Some(other_string) = other.as_any().downcast_ref::<StringObject>() {
+            Box::new(StringObject::new(self.value.clone() + &other_string.value))
+        } else {
+            panic!("Cannot add {:?} to String", other)
+        }
+    }
+
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+
+    fn clone_obj(&self) -> Box<dyn ObjectTrait> {
+        Box::new(self.clone())
+    }
+
+    fn equals(&self, other: &dyn ObjectTrait) -> bool {
+        if let Some(other_string) = other.as_any().downcast_ref::<StringObject>() {
+            self.value == other_string.value
+        } else {
+            false
+        }
+    }
+}
+
+// Variables
+
+struct Variable {
+    name: String,
+    object: Object,
+}
+
+impl Variable {
+    fn new(name: String, object: Object) -> Variable {
+        Variable { name, object }
+    }
+
+    fn to_string(&self) -> String {
+        format!("{} == {}", self.name, self.object)
     }
 }
 
@@ -111,60 +301,63 @@ fn parse(expression: &str) -> Vec<Token> {
 fn evaluate(expression: &str) -> Option<String> {
     let tokens = parse(expression);
 
-    if let Some(operator) = tokens
+    let operator = tokens
         .iter()
-        .find(|token| token.token_type == TokenType::Operator)
-    {
-        return match operator.literal.as_str() {
+        .find(|t| t.token_type == TokenType::Operator);
+
+    match operator {
+        Some(op) => match op.literal.as_str() {
             "+" => {
-                if tokens
-                    .iter()
-                    .filter(|token| token.token_type == TokenType::Operand)
-                    .all(|token| token.object_type == Some(ObjectType::Int))
-                {
-                    let sum: i64 = tokens
-                        .iter()
-                        .filter(|token| token.token_type == TokenType::Operand)
-                        .filter_map(|token| token.literal.parse::<i64>().ok())
-                        .sum();
+                let mut operands = tokens
+                    .into_iter()
+                    .filter(|t| t.token_type == TokenType::Operand);
 
-                    Some(sum.to_string())
-                } else if tokens
-                    .iter()
-                    .filter(|token| token.token_type == TokenType::Operand)
-                    .all(|token| token.object_type == Some(ObjectType::Float))
-                {
-                    let sum: f64 = tokens
-                        .iter()
-                        .filter(|token| token.token_type == TokenType::Operand)
-                        .filter_map(|token| token.literal.parse::<f64>().ok())
-                        .sum();
+                let lhs = operands.next()
+                    .expect("Error getting first operand from Add expression.")
+                    .object
+                    .expect("Error unwrapping object from first operand in Add expression.");
+                let rhs = operands.next()
+                    .expect("Error getting second operand from Add expression.")
+                    .object
+                    .expect("Error unwrapping object from second operand in Add expression.");
 
-                    Some(sum.to_string())
-                } else if tokens
-                    .iter()
-                    .filter(|token| token.token_type == TokenType::Operand)
-                    .all(|token| token.object_type == Some(ObjectType::String))
-                {
-                    let mut new_string = String::new();
-                    for string in tokens
-                        .into_iter()
-                        .filter(|token| token.token_type == TokenType::Operand)
-                        .filter_map(|token| token.unwrap_string())
-                    {
-                        new_string.push_str(&string);
-                    }
-                    Some(new_string)
-                } else {
-                    None
-                }
+                let result = lhs + rhs;
+
+                Some(result.to_string())
+            },
+            "=" => {
+                let mut operands = tokens
+                    .into_iter()
+                    .filter(|t| t.token_type == TokenType::Operand);
+
+                let lhs_token = operands.next()
+                    .expect("Error getting variable name from assignment expression.");
+                let rhs_token = operands.next()
+                    .expect("Error getting variable value from assignment expression.");
+
+                let var_name = lhs_token.literal.clone();
+                let var_value = rhs_token.object
+                    .expect("Error unwrapping object for value from assignment expression.");
+
+                let var = Variable::new(var_name, var_value);
+
+                Some(var.to_string())
             }
             _ => None,
-        };
-    }
+        },
 
-    // For now, 'evaluation' will consist of just returning the first token.
-    tokens.first().map(|result| result.literal.clone())
+        // Self-evaluating expression
+        None => {
+            let operand = tokens
+                .into_iter()
+                .find(|t| t.token_type == TokenType::Operand)
+                .expect("Found no operand in a self-evaluating expression.")
+                .object
+                .expect("Error unwrapping object from self-evaluating expression.");
+
+            Some(operand.to_string())
+        }
+    }
 }
 
 fn repl(mut writer: impl Write, mut reader: impl io::BufRead) {
@@ -190,7 +383,7 @@ fn read_file(path: &str) -> Vec<String> {
 
 fn process_file(lines: &[String], writer: &mut impl Write) {
     for expression in lines {
-        if let Some(result) = evaluate(&expression) {
+        if let Some(result) = evaluate(expression) {
             writeln!(writer, "{result}").expect("Failed to write result.");
         }
     }
@@ -272,25 +465,6 @@ mod tests {
 
         assert_floats_eq(result, expected);
     }
-    #[test]
-    fn test_file() {
-        let lines = read_file("test_input.txt");
-        let mut output: Vec<u8> = Vec::new();
-        process_file(&lines, &mut output);
-
-        let results = vec!["3", "5", "9", "7.7", "hello world"];
-
-        let expected = results.join("\n") + "\n";
-        assert_eq!(output, expected.as_bytes());
-    }
-
-    #[test]
-    fn test_unwrap_string() {
-        assert_eq!(
-            Token::new("\"hello\"").unwrap_string(),
-            Some(String::from("hello"))
-        )
-    }
 
     #[test]
     fn test_add_strings() {
@@ -298,5 +472,40 @@ mod tests {
             evaluate("\"hello\" + \" world\""),
             Some(String::from("hello world"))
         );
+    }
+
+    #[test]
+    fn test_objs() {
+        let lhs = Object::new(Box::new(IntObject::new(123)));
+        let rhs = Object::new(Box::new(IntObject::new(456)));
+        assert_eq!(lhs.to_string(), "123");
+        assert_eq!(rhs.to_string(), "456");
+
+        let expected_result = Object::new(Box::new(IntObject::new(579)));
+        assert_eq!(lhs + rhs, expected_result);
+    }
+
+    #[test]
+    fn test_variable() {
+        let var = Variable::new(String::from("x"), Object::new(Box::new(IntObject::new(123))));
+        assert_eq!(var.to_string(), "x == 123");
+    }
+
+    #[test]
+    fn test_variable_assignment() {
+        let result = evaluate("x = 456");
+        assert_eq!(result, Some(String::from("x == 456")));
+    }
+    
+    #[test]
+    fn test_file() {
+        let lines = read_file("test_input.txt");
+        let mut output: Vec<u8> = Vec::new();
+        process_file(&lines, &mut output);
+
+        let results = vec!["3", "5", "9", "7.7", "hello world", "x == 7"];
+
+        let expected = results.join("\n") + "\n";
+        assert_eq!(output, expected.as_bytes());
     }
 }
