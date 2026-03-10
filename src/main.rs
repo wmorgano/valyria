@@ -2,6 +2,7 @@ use std::env;
 use std::fmt::Display;
 use std::io::{self, Write};
 use std::ops::Add;
+use std::collections::HashMap;
 
 fn display_prompt(prompt: &str, writer: &mut impl Write) {
     write!(writer, "{prompt}").expect("Failed to write prompt.");
@@ -26,40 +27,60 @@ fn is_terminator(expression: &str) -> bool {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+enum OperatorType {
+    Add,
+    Assign,
+}
+
+
+#[derive(Debug, Clone, PartialEq)]
+enum LiteralValue {
+    Int(i64),
+    Float(f64),
+    String(String),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+enum OperandType {
+    Literal(LiteralValue),
+    Identifier,
+}
+
+#[derive(Debug, Clone, PartialEq)]
 enum TokenType {
-    Operator,
-    Operand,
+    Operator(OperatorType),
+    Operand(OperandType),
 }
 
 #[derive(Debug, Clone, PartialEq)]
 struct Token {
-    literal: String,
+    representation: String,
     token_type: TokenType,
-    object: Option<Object>,
 }
 
 impl Token {
     fn new(literal: &str) -> Token {
-        let mut token_type = TokenType::Operand;
-        let mut object = None;
-        if matches!(literal, "+") || matches!(literal, "=") {
-            token_type = TokenType::Operator;
-        } else {
-            if let Ok(val) = literal.parse::<i64>() {
-                object = Some(Object::new(Box::new(IntObject::new(val))));
-            } else if let Ok(val) = literal.parse::<f64>() {
-                object = Some(Object::new(Box::new(FloatObject::new(val))));
-            } else if literal.starts_with('"') && literal.ends_with('"') {
-                object = Some(Object::new(Box::new(StringObject::new(literal[1..literal.len() - 1]
-                    .to_string()))));
-            }
-        }
+        let mut representation = String::from(literal);
 
-        Token {
-            literal: String::from(literal),
-            token_type,
-            object,
-        }
+        let token_type = match literal {
+            "+" => TokenType::Operator(OperatorType::Add),
+            "=" => TokenType::Operator(OperatorType::Assign),
+            _ => {
+                if let Ok(val) = literal.parse::<i64>() {
+                    TokenType::Operand(OperandType::Literal(LiteralValue::Int(val)))
+                } else if let Ok(val) = literal.parse::<f64>() {
+                    TokenType::Operand(OperandType::Literal(LiteralValue::Float(val)))
+                } else if literal.starts_with('"') && literal.ends_with('"') {
+                    representation = String::from(&literal[1..literal.len() - 1]);
+                    TokenType::Operand(OperandType::Literal(
+                        LiteralValue::String(representation.clone())))
+                } else {
+                    TokenType::Operand(OperandType::Identifier)
+                }
+            }
+        };
+
+        Token { representation, token_type }
     }
 }
 
@@ -70,8 +91,6 @@ trait ObjectTrait: std::fmt::Debug {
     fn clone_obj(&self) -> Box<dyn ObjectTrait>;
     fn equals(&self, other: &dyn ObjectTrait) -> bool;
 }
-
-// Generic Object Structure
 
 struct Object {
     obj: Box<dyn ObjectTrait>,
@@ -117,8 +136,6 @@ impl Add for Object {
     }
 }
 
-// Int Object
-
 #[derive(Debug, Clone, PartialEq)]
 struct IntObject {
     value: i64,
@@ -163,8 +180,6 @@ impl ObjectTrait for IntObject {
     }
 }
 
-// Float Object
-
 #[derive(Debug, Clone, PartialEq)]
 struct FloatObject {
     value: f64,
@@ -208,8 +223,6 @@ impl ObjectTrait for FloatObject {
     }
 }
 
-// String Object
-
 #[derive(Debug, Clone, PartialEq)]
 struct StringObject {
     value: String,
@@ -251,22 +264,19 @@ impl ObjectTrait for StringObject {
     }
 }
 
-// Variables
-
-struct Variable {
-    name: String,
-    object: Object,
+struct Environment {
+    variables: HashMap<String, Object>,
 }
 
-impl Variable {
-    fn new(name: String, object: Object) -> Variable {
-        Variable { name, object }
-    }
-
-    fn to_string(&self) -> String {
-        format!("{} == {}", self.name, self.object)
+impl Environment {
+    fn new() -> Self {
+        Environment {
+            variables: HashMap::new(),
+        }
     }
 }
+
+
 
 fn parse(expression: &str) -> Vec<Token> {
     let mut tokens = Vec::new();
@@ -298,77 +308,68 @@ fn parse(expression: &str) -> Vec<Token> {
     tokens
 }
 
-fn evaluate(expression: &str) -> Option<String> {
-    let tokens = parse(expression);
-
-    let operator = tokens
-        .iter()
-        .find(|t| t.token_type == TokenType::Operator);
-
-    match operator {
-        Some(op) => match op.literal.as_str() {
-            "+" => {
-                let mut operands = tokens
-                    .into_iter()
-                    .filter(|t| t.token_type == TokenType::Operand);
-
-                let lhs = operands.next()
-                    .expect("Error getting first operand from Add expression.")
-                    .object
-                    .expect("Error unwrapping object from first operand in Add expression.");
-                let rhs = operands.next()
-                    .expect("Error getting second operand from Add expression.")
-                    .object
-                    .expect("Error unwrapping object from second operand in Add expression.");
-
-                let result = lhs + rhs;
-
-                Some(result.to_string())
-            },
-            "=" => {
-                let mut operands = tokens
-                    .into_iter()
-                    .filter(|t| t.token_type == TokenType::Operand);
-
-                let lhs_token = operands.next()
-                    .expect("Error getting variable name from assignment expression.");
-                let rhs_token = operands.next()
-                    .expect("Error getting variable value from assignment expression.");
-
-                let var_name = lhs_token.literal.clone();
-                let var_value = rhs_token.object
-                    .expect("Error unwrapping object for value from assignment expression.");
-
-                let var = Variable::new(var_name, var_value);
-
-                Some(var.to_string())
+fn get_token_value(token: &Token, environment: &Environment) -> Result<Object, String> {
+    match &token.token_type {
+        TokenType::Operand(OperandType::Literal(literal)) => {
+            match literal {
+                LiteralValue::Int(val) => Ok(Object::new(Box::new(IntObject::new(*val)))),
+                LiteralValue::Float(val) => Ok(Object::new(Box::new(FloatObject::new(*val)))),
+                LiteralValue::String(val) => Ok(Object::new(Box::new(StringObject::new(val.clone())
+                ))),
             }
-            _ => None,
-        },
-
-        // Self-evaluating expression
-        None => {
-            let operand = tokens
-                .into_iter()
-                .find(|t| t.token_type == TokenType::Operand)
-                .expect("Found no operand in a self-evaluating expression.")
-                .object
-                .expect("Error unwrapping object from self-evaluating expression.");
-
-            Some(operand.to_string())
         }
+        TokenType::Operand(OperandType::Identifier) => {
+            environment.variables.get(&token.representation).cloned()
+                .ok_or_else(|| format!("Undefined variable: {}", token.representation))
+        }
+        _ => Err(format!("Invalid token: {}", token.representation)),
     }
 }
 
-fn repl(mut writer: impl Write, mut reader: impl io::BufRead) {
+fn evaluate(expression: &str, environment: &mut Environment) -> Result<Option<String>, String> {
+    let tokens = parse(expression);
+
+    match &tokens[..] {
+        [] => Err(String::from("Empty expression")),
+        [token] => {
+            let value = get_token_value(token, environment)?;
+            Ok(Some(value.to_string()))
+        },
+        [lhs, operator, rhs] => {
+            match &operator.token_type {
+                TokenType::Operator(OperatorType::Add) => {
+                    let lhs_object = get_token_value(lhs, environment)?;
+                    let rhs_object = get_token_value(rhs, environment)?;
+
+                    let result = lhs_object + rhs_object;
+                    Ok(Some(result.to_string()))
+                },
+                TokenType::Operator(OperatorType::Assign) => {
+                    let value = get_token_value(rhs, environment)?;
+                    environment.variables.insert(lhs.representation.clone(), value.clone());
+                    Ok(None)
+                }
+                _ => Err(format!("Unknown operator: {}", operator.representation))
+            }
+        }
+        _ => Err(String::from("Invalid expression"))
+    }
+}
+
+fn repl(mut writer: impl Write, mut reader: impl io::BufRead, environment: &mut Environment) {
     loop {
         let expression = read_expression(&mut writer, &mut reader);
         if is_terminator(&expression) {
             break;
         }
 
-        if let Some(result) = evaluate(&expression) {
-            println!("{result}");
+        match evaluate(&expression, environment) {
+            Ok(result) => {
+                if let Some(result) = result {
+                    writeln!(writer, "{result}").expect("Failed to write evaluation to REPL.");
+                }
+            }
+            Err(error) => println!("Error: {error}"),
         }
     }
 }
@@ -381,18 +382,25 @@ fn read_file(path: &str) -> Vec<String> {
         .collect()
 }
 
-fn process_file(lines: &[String], writer: &mut impl Write) {
+fn process_file(lines: &[String], writer: &mut impl Write, environment: &mut Environment) {
     for expression in lines {
-        if let Some(result) = evaluate(expression) {
-            writeln!(writer, "{result}").expect("Failed to write result.");
+        match evaluate(expression, environment) {
+            Ok(result) => {
+                if let Some(result) = result {
+                    writeln!(writer, "{result}").expect("Failed to write evaluation to file.");
+                }
+            },
+            Err(error) => writeln!(writer, "Error: {error}").expect("Failed to write error."),
         }
     }
 }
 
 fn main() {
+    let mut environment = Environment::new();
+
     match env::args().nth(1) {
-        Some(path) => process_file(&read_file(&path), &mut io::stdout()),
-        None => repl(io::stdout(), io::stdin().lock()),
+        Some(path) => process_file(&read_file(&path), &mut io::stdout(), &mut environment),
+        None => repl(io::stdout(), io::stdin().lock(), &mut environment),
     }
 }
 
@@ -435,7 +443,7 @@ mod tests {
     #[test]
     fn test_token() {
         let token = Token::new("123");
-        assert_eq!(token.literal, "123");
+        assert_eq!(token.representation, "123");
     }
 
     #[test]
@@ -449,18 +457,21 @@ mod tests {
 
     #[test]
     fn test_evaluate() {
-        let input_expressions = "123 456";
-        assert_eq!(evaluate(&input_expressions), Some(String::from("123")));
+        let input_expressions = "123";
+        assert_eq!(evaluate(&input_expressions, &mut Environment::new()),
+            Ok(Some(String::from("123"))));
     }
 
     #[test]
     fn test_add_integers() {
-        assert_eq!(evaluate("1 + 2"), Some(String::from("3")));
+        assert_eq!(evaluate("1 + 2", &mut Environment::new()),
+                   Ok(Some(String::from("3"))));
     }
 
     #[test]
     fn test_add_floats() {
-        let result: f64 = evaluate("1.4 + 2.3").unwrap().parse().unwrap();
+        let result: f64 = evaluate("1.4 + 2.3", &mut Environment::new())
+            .unwrap().unwrap().parse().unwrap();
         let expected: f64 = 3.7;
 
         assert_floats_eq(result, expected);
@@ -469,8 +480,8 @@ mod tests {
     #[test]
     fn test_add_strings() {
         assert_eq!(
-            evaluate("\"hello\" + \" world\""),
-            Some(String::from("hello world"))
+            evaluate("\"hello\" + \" world\"", &mut Environment::new()),
+            Ok(Some(String::from("hello world")))
         );
     }
 
@@ -487,23 +498,21 @@ mod tests {
 
     #[test]
     fn test_variable() {
-        let var = Variable::new(String::from("x"), Object::new(Box::new(IntObject::new(123))));
-        assert_eq!(var.to_string(), "x == 123");
-    }
+        let mut env = Environment::new();
+        let name = String::from("x");
+        let val = Object::new(Box::new(IntObject::new(123)));
 
-    #[test]
-    fn test_variable_assignment() {
-        let result = evaluate("x = 456");
-        assert_eq!(result, Some(String::from("x == 456")));
+        env.variables.insert(name, val.clone());
+        assert_eq!(env.variables.get("x"), Some(&val));
     }
     
     #[test]
     fn test_file() {
-        let lines = read_file("test_input.txt");
+        let lines = read_file("tests/test_input.txt");
         let mut output: Vec<u8> = Vec::new();
-        process_file(&lines, &mut output);
+        process_file(&lines, &mut output, &mut Environment::new());
 
-        let results = vec!["3", "5", "9", "7.7", "hello world", "x == 7"];
+        let results = vec!["3", "5", "9", "7.7", "hello world", "10"];
 
         let expected = results.join("\n") + "\n";
         assert_eq!(output, expected.as_bytes());
